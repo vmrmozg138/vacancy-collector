@@ -8,6 +8,9 @@
 from __future__ import annotations
 
 from typing import Any, Iterator
+from sqlalchemy import select
+
+from collector.storage.models import Vacancy
 
 from collector.core.http import HttpClient
 from collector.core.pipeline import run_source
@@ -69,6 +72,26 @@ def test_upsert_is_idempotent(session, trudvsem_payload: dict) -> None:
     assert (inserted, updated) == (0, len(items))
     assert count_vacancies(session) == len(items)
 
+def test_same_external_id_from_different_sources(session) -> None:
+    """Ключ — пара (source, external_id): совпадение id у разных источников не конфликтует."""
+    from_first = VacancyItem(source="trudvsem", external_id="42", title="Вакансия из первого источника")
+    from_second = VacancyItem(source="hh-подобный", external_id="42", title="Вакансия из второго источника")
+
+    inserted, updated = upsert_vacancies(session, [from_first])
+    session.commit()
+    assert (inserted, updated) == (1, 0)
+
+    # Тот же external_id, но другой источник: это ДОБАВЛЕНИЕ, а не обновление первой записи.
+    inserted, updated = upsert_vacancies(session, [from_second])
+    session.commit()
+    assert (inserted, updated) == (1, 0)
+
+    assert count_vacancies(session) == 2
+    titles = set(session.scalars(select(Vacancy.title)).all())
+    assert titles == {"Вакансия из первого источника", "Вакансия из второго источника"}
+
+
+
 
 def test_upsert_updates_changed_field(session, trudvsem_payload: dict) -> None:
     items = make_source().parse_page(trudvsem_payload)
@@ -103,6 +126,32 @@ class _StubSource(VacancySource):
         return [
             VacancyItem(source=self.name, external_id=str(payload), title=f"Вакансия {payload}")
         ]
+
+class _FlakySource(_StubSource):
+    """Страница «плохая» падает при разборе, остальные разбираются нормально."""
+
+    def parse_page(self, payload):
+        if payload == "плохая":
+            raise ValueError("битая страница")
+        return super().parse_page(payload)
+
+def test_pipeline_continues_after_parse_error(session) -> None:
+    """Сбой разбора одной страницы не останавливает прогон: остальные записываются."""
+    import logging
+
+    _, session_factory = _session_factory_for(session)
+    stats = run_source(
+        _FlakySource(["один", "плохая", "три"]),
+        session_factory,
+        pages=3,
+        logger=logging.getLogger("test"),
+    )
+
+    assert stats.pages_fetched == 3   # страницу скачали и посчитали
+    assert stats.errors == 1          # ошибку зафиксировали
+    assert stats.status == "ok"       # но прогон не провальный — это не сбой получения
+    assert stats.items_inserted == 2  # уцелевшие страницы записаны
+    assert count_vacancies(session) == 2
 
 
 def test_pipeline_writes_data_and_run_log(session) -> None:

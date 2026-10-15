@@ -1,7 +1,8 @@
-# OpenData Collector
+# Парсер вакансий
 
 Сборщик данных из открытых источников: забирает данные по API и с сайтов, приводит их
 к единому виду и складывает в базу так, что повторный запуск не создаёт дублей.
+Пакет в коде называется `collector`.
 
 Проект сделан как рабочий инструмент, а не как учебное задание: запускается по расписанию,
 пишет логи в файл, умеет работать и с SQLite, и с PostgreSQL, тесты не зависят от сети.
@@ -14,27 +15,30 @@
 
 ## Быстрый старт
 
+Нужен Python 3.11+ и [Poetry](https://python-poetry.org/).
+
 ```bash
-python -m venv .venv
-.venv\Scripts\activate            # Windows
-pip install -r requirements.txt
+poetry install                    # создаст .venv рядом с проектом и поставит зависимости
 copy .env.example .env            # при необходимости поправить настройки
 
-python -m collector.cli run --source trudvsem --pages 3 --limit 50
-python -m collector.cli stats
+poetry run python -m collector.cli run --source trudvsem --pages 3 --limit 50
+poetry run python -m collector.cli stats
 ```
+
+Версии зависимостей зафиксированы в `poetry.lock`, поэтому окружение соберётся одинаково
+на любой машине: `poetry install` — и всё.
 
 Фильтр по тексту уходит на сторону источника, по региону — применяется у нас:
 
 ```bash
-python -m collector.cli run --source trudvsem --pages 2 --text python
-python -m collector.cli run --source trudvsem --pages 5 --region Москва
+poetry run python -m collector.cli run --source trudvsem --pages 2 --text python
+poetry run python -m collector.cli run --source trudvsem --pages 5 --region Москва
 ```
 
 Тесты (без сети, на сохранённых ответах источника):
 
 ```bash
-python -m pytest
+poetry run pytest
 ```
 
 ## Как это устроено

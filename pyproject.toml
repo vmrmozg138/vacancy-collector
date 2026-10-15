@@ -1,0 +1,24 @@
+[project]
+name = "collector"
+version = "0.1.0"
+description = "Сбор данных о вакансиях из открытых источников: API, нормализация, идемпотентная загрузка в базу"
+authors = [
+    {name = "Vladimir Rastorguev",email = "vmrmozg138@users.noreply.github.com"}
+]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "requests (>=2.34.2,<3.0.0)",
+    "sqlalchemy (>=2.1.4,<3.0.0)",
+    "python-dotenv (>=1.2.4,<2.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+dev = [
+    "pytest (>=9.1.1,<10.0.0)"
+]
