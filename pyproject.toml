@@ -6,6 +6,7 @@ authors = [
     {name = "Vladimir Rastorguev",email = "vmrmozg138@users.noreply.github.com"}
 ]
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
     "requests (>=2.34.2,<3.0.0)",

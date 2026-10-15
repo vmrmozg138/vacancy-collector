@@ -1,0 +1,32 @@
+# Непрерывная интеграция: при каждом push и pull request прогоняем тесты.
+#
+# Что здесь важно и почему это работает без оговорок:
+#   * тесты идут без сети и без внешней базы — источники разбираются на сохранённых фикстурах,
+#     хранилище проверяется на SQLite в памяти;
+#   * интеграционный тест с браузером помечен маркером integration и по умолчанию пропускается,
+#     поэтому Chromium в CI не нужен (иначе сборка тянула бы сотни мегабайт);
+#   * версия Python зафиксирована, а Poetry ставится явной версией — сборка воспроизводима.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Установить Poetry
+        run: pip install --no-cache-dir "poetry>=2.0,<3.0"
+
+      - name: Поставить зависимости
+        run: poetry install --no-interaction
+
+      - name: Прогнать тесты
+        run: poetry run pytest
