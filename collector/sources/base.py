@@ -17,6 +17,7 @@ from datetime import date
 from typing import Any, Iterator
 
 from collector.core.http import HttpClient
+from collector.core.robots import RobotsCache
 
 
 @dataclass(slots=True)
@@ -51,9 +52,22 @@ class VacancySource(ABC):
     """Базовый класс источника вакансий."""
 
     name: str = "base"
+    #: Класс-атрибут, чтобы источники-заглушки в тестах работали без вызова __init__.
+    robots: RobotsCache | None = None
 
-    def __init__(self, http: HttpClient) -> None:
+    def __init__(self, http: HttpClient, robots: RobotsCache | None = None) -> None:
         self.http = http
+        self.robots = robots
+
+    def can_fetch(self, url: str) -> bool:
+        """Разрешён ли адрес по robots.txt. Без настроенной проверки — разрешено.
+
+        Источники, которые ходят на сайты (а не в API), обязаны спрашивать это
+        перед загрузкой страницы: отказ должен быть виден в логе, а не молча проигнорирован.
+        """
+        if self.robots is None:
+            return True
+        return self.robots.can_fetch(url)
 
     @abstractmethod
     def iter_pages(self, pages: int) -> Iterator[Any]:
