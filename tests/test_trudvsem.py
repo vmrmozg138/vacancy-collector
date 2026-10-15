@@ -15,7 +15,7 @@ from collector.storage.models import Vacancy
 from collector.core.http import HttpClient
 from collector.core.pipeline import run_source
 from collector.core.stats import RunStats
-from collector.sources.base import VacancyItem, VacancySource
+from collector.sources.base import VacancyItem, Source
 from collector.sources.trudvsem_api import TrudvsemSource
 from collector.storage.repository import count_vacancies, upsert_vacancies
 
@@ -110,7 +110,7 @@ def test_upsert_updates_changed_field(session, trudvsem_payload: dict) -> None:
     assert count_vacancies(session) == len(items)
 
 
-class _StubSource(VacancySource):
+class _StubSource(Source):
     """Источник-заглушка: отдаёт заранее подготовленные страницы."""
 
     name = "stub"

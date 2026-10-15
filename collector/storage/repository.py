@@ -3,6 +3,9 @@
 Главное здесь — upsert: вставка с обновлением по конфликту уникального ключа.
 Обычный INSERT на втором запуске упал бы с ошибкой уникальности, а «сначала SELECT,
 потом INSERT/UPDATE в цикле» превращается в N+1 запрос. Здесь одна команда на пачку строк.
+
+Логика upsert одна для всех таблиц с парой (source, external_id): вакансии, справочник
+регионов, сырые ответы. Отличаются только наборы обновляемых колонок.
 """
 
 from __future__ import annotations
@@ -16,17 +19,19 @@ from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
+from collector.core.normalize import normalize_name
 from collector.core.stats import RunStats
 from collector.core.timeutils import utcnow
-from collector.sources.base import VacancyItem
-from collector.storage.models import RunLog, Vacancy
+from collector.sources.base import Item, RegionItem, VacancyItem
+from collector.storage.models import RawDocument, Region, RunLog, Vacancy
 
-# Поля, которые обновляются при повторной встрече с той же вакансией.
-UPDATABLE_COLUMNS = (
+#: Поля, которые обновляются при повторной встрече с той же вакансией.
+UPDATABLE_VACANCY_COLUMNS = (
     "title",
     "company",
     "company_inn",
     "region",
+    "region_key",
     "salary_min",
     "salary_max",
     "currency",
@@ -36,39 +41,70 @@ UPDATABLE_COLUMNS = (
     "updated_at",
 )
 
+#: Поля, которые обновляются при повторной встрече с тем же регионом справочника.
+UPDATABLE_REGION_COLUMNS = (
+    "name",
+    "name_key",
+    "subject_type",
+    "federal_district",
+    "territory_km2",
+    "population",
+    "admin_center",
+    "raw",
+    "updated_at",
+)
 
-def item_to_row(item: VacancyItem) -> dict[str, Any]:
-    """Преобразовать объект источника в словарь колонок."""
+
+def item_to_row(item: Item) -> dict[str, Any]:
+    """Преобразовать объект источника в словарь колонок.
+
+    Здесь же считаются производные ключи (`region_key`, `name_key`): они нужны, чтобы
+    сопоставлять вакансии со справочником регионов, и считаются один раз при записи,
+    а не при каждом запросе.
+    """
     row = item.to_dict()
     row["raw"] = json.dumps(item.raw, ensure_ascii=False)
     row["updated_at"] = utcnow()
+
+    if isinstance(item, VacancyItem):
+        row["region_key"] = normalize_name(item.region)
+    elif isinstance(item, RegionItem):
+        row["name_key"] = normalize_name(item.name)
     return row
 
 
-def upsert_vacancies(session: Session, items: Sequence[VacancyItem]) -> tuple[int, int]:
-    """Записать вакансии. Возвращает (сколько вставлено, сколько обновлено)."""
+def upsert_items(
+    session: Session,
+    model: type,
+    items: Sequence[Item],
+    updatable_columns: Sequence[str],
+) -> tuple[int, int]:
+    """Записать пачку объектов одного источника. Возвращает (вставлено, обновлено)."""
     if not items:
         return 0, 0
 
     rows = [item_to_row(item) for item in items]
-    source = items[0].source
+    sources = {item.source for item in items}
+    if len(sources) > 1:
+        raise ValueError(f"в одной пачке ожидается один источник, получено: {sorted(sources)}")
+    source = sources.pop()
 
-    existing = _existing_ids(session, source, [item.external_id for item in items])
+    existing = _existing_ids(session, model, source, [item.external_id for item in items])
     inserted = sum(1 for item in items if item.external_id not in existing)
     updated = len(items) - inserted
 
     dialect = session.get_bind().dialect.name
     if dialect == "postgresql":
-        statement = postgresql_insert(Vacancy).values(rows)
+        statement = postgresql_insert(model).values(rows)
         statement = statement.on_conflict_do_update(
             index_elements=["source", "external_id"],
-            set_={column: statement.excluded[column] for column in UPDATABLE_COLUMNS},
+            set_={column: statement.excluded[column] for column in updatable_columns},
         )
     elif dialect == "sqlite":
-        statement = sqlite_insert(Vacancy).values(rows)
+        statement = sqlite_insert(model).values(rows)
         statement = statement.on_conflict_do_update(
             index_elements=["source", "external_id"],
-            set_={column: getattr(statement.excluded, column) for column in UPDATABLE_COLUMNS},
+            set_={column: getattr(statement.excluded, column) for column in updatable_columns},
         )
     else:  # pragma: no cover - на случай экзотической СУБД
         raise NotImplementedError(f"upsert не реализован для диалекта {dialect}")
@@ -77,13 +113,46 @@ def upsert_vacancies(session: Session, items: Sequence[VacancyItem]) -> tuple[in
     return inserted, updated
 
 
-def _existing_ids(session: Session, source: str, external_ids: Iterable[str]) -> set[str]:
-    """Какие из этих вакансий уже есть в базе (нужно только для статистики)."""
+def upsert_vacancies(session: Session, items: Sequence[Item]) -> tuple[int, int]:
+    """Записать вакансии."""
+    return upsert_items(session, Vacancy, items, UPDATABLE_VACANCY_COLUMNS)
+
+
+def upsert_regions(session: Session, items: Sequence[Item]) -> tuple[int, int]:
+    """Записать справочник регионов."""
+    return upsert_items(session, Region, items, UPDATABLE_REGION_COLUMNS)
+
+
+def _existing_ids(session: Session, model: type, source: str, external_ids: Iterable[str]) -> set[str]:
+    """Какие из этих записей уже есть в базе (нужно только для статистики)."""
     ids = list(external_ids)
     if not ids:
         return set()
-    query = select(Vacancy.external_id).where(Vacancy.source == source, Vacancy.external_id.in_(ids))
+    query = select(model.external_id).where(model.source == source, model.external_id.in_(ids))
     return set(session.scalars(query).all())
+
+
+def save_raw_document(
+    session: Session,
+    *,
+    source: str,
+    url: str,
+    payload: str,
+    content_type: str = "text/html",
+    note: str | None = None,
+) -> RawDocument:
+    """Сохранить сырой ответ источника (например, HTML после рендеринга браузером)."""
+    document = RawDocument(
+        source=source,
+        url=url,
+        content_type=content_type,
+        size_bytes=len(payload.encode("utf-8")),
+        payload=payload,
+        note=note,
+        fetched_at=utcnow(),
+    )
+    session.merge(document)
+    return document
 
 
 def save_run(
@@ -120,6 +189,14 @@ def count_vacancies(session: Session, source: str | None = None) -> int:
     return int(session.scalar(query) or 0)
 
 
+def count_regions(session: Session, source: str | None = None) -> int:
+    """Сколько регионов в справочнике."""
+    query = select(func.count(Region.id))
+    if source:
+        query = query.where(Region.source == source)
+    return int(session.scalar(query) or 0)
+
+
 def top_regions(session: Session, limit: int = 10) -> list[tuple[str, int]]:
     """Топ регионов по количеству вакансий — проверка, что данные осмысленные."""
     query = (
@@ -130,3 +207,45 @@ def top_regions(session: Session, limit: int = 10) -> list[tuple[str, int]]:
         .limit(limit)
     )
     return [(region or "—", int(total)) for region, total in session.execute(query).all()]
+
+
+UNMATCHED = "не сопоставлено"
+
+
+def vacancies_by_district(session: Session, limit: int = 20) -> list[tuple[str, int]]:
+    """Вакансии в разрезе федеральных округов — то, ради чего собирался справочник.
+
+    Сопоставление идёт по нормализованному названию региона. Справочник берётся
+    через подзапрос с группировкой: иначе при повторе ключа в справочнике join
+    размножил бы вакансии и цифры в отчёте были бы завышены.
+    """
+    region_map = (
+        select(
+            Region.name_key.label("name_key"),
+            func.min(Region.federal_district).label("federal_district"),
+        )
+        .where(Region.name_key != "")
+        .group_by(Region.name_key)
+        .subquery()
+    )
+    district = func.coalesce(region_map.c.federal_district, UNMATCHED).label("district")
+    query = (
+        select(district, func.count(Vacancy.id).label("total"))
+        .select_from(Vacancy)
+        .outerjoin(region_map, region_map.c.name_key == Vacancy.region_key)
+        .group_by(district)
+        .order_by(func.count(Vacancy.id).desc())
+        .limit(limit)
+    )
+    return [(name or UNMATCHED, int(total)) for name, total in session.execute(query).all()]
+
+
+def region_match_stats(session: Session) -> tuple[int, int]:
+    """Сколько вакансий удалось сопоставить со справочником из общего числа."""
+    matched = (
+        select(func.count(Vacancy.id))
+        .select_from(Vacancy)
+        .join(Region, Region.name_key == Vacancy.region_key)
+        .where(Vacancy.region_key != "")
+    )
+    return int(session.scalar(matched) or 0), count_vacancies(session)

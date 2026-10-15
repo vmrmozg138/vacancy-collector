@@ -8,24 +8,33 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterator, Sequence
 
 from sqlalchemy.orm import Session
 
 from collector.core.stats import RunStats
 from collector.core.timeutils import utcnow
-from collector.sources.base import VacancySource
+from collector.sources.base import Item, Source
 from collector.storage.repository import save_run, upsert_vacancies
+
+#: Как выглядит функция записи пачки объектов: получает сессию и объекты, возвращает (вставлено, обновлено).
+Sink = Callable[[Session, Sequence[Item]], tuple[int, int]]
 
 
 def run_source(
-    source: VacancySource,
+    source: Source,
     session_factory: Callable[[], Session],
     pages: int,
     logger: logging.Logger,
     region_filter: str | None = None,
+    sink: Sink = upsert_vacancies,
 ) -> RunStats:
-    """Скачать `pages` страниц источника и записать данные в базу."""
+    """Скачать `pages` страниц источника и записать данные в базу.
+
+    `sink` — функция записи пачки объектов. По умолчанию вакансии; для справочника
+    регионов передаётся `upsert_regions`. Так конвейер остаётся одним и тем же
+    для любых данных, а знание о таблице живёт в слое хранения.
+    """
     stats = RunStats(source=source.name)
     started_at = utcnow()
 
@@ -61,7 +70,12 @@ def run_source(
         if region_filter:
             needle = region_filter.casefold()
             before = len(items)
-            items = [item for item in items if needle in (item.region or "").casefold()]
+            # Фильтр по региону применим только к вакансиям: у объектов справочника поля «region» нет.
+            items = [
+                item
+                for item in items
+                if needle in (getattr(item, "region", None) or "").casefold()
+            ]
             stats.items_skipped += before - len(items)
 
         stats.items_parsed += len(items)
@@ -69,7 +83,7 @@ def run_source(
             continue
 
         with session_factory() as session:
-            inserted, updated = upsert_vacancies(session, items)
+            inserted, updated = sink(session, items)
             session.commit()
         stats.items_inserted += inserted
         stats.items_updated += updated

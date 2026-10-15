@@ -16,7 +16,7 @@ from typing import Any, Iterator
 
 from collector.core.http import HttpClient
 from collector.core.timeutils import parse_date
-from collector.sources.base import VacancyItem, VacancySource
+from collector.sources.base import VacancyItem, Source
 
 
 def _positive_int(value: Any) -> int | None:
@@ -28,7 +28,7 @@ def _positive_int(value: Any) -> int | None:
     return number if number > 0 else None
 
 
-class TrudvsemSource(VacancySource):
+class TrudvsemSource(Source):
     """Вакансии с портала «Работа России»."""
 
     name = "trudvsem"

@@ -101,9 +101,9 @@ def test_missing_robots_means_allowed_but_logged() -> None:
 
 
 def test_source_without_robots_allows_everything() -> None:
-    from collector.sources.base import VacancyItem, VacancySource
+    from collector.sources.base import VacancyItem, Source
 
-    class _Source(VacancySource):
+    class _Source(Source):
         name = "stub"
 
         def iter_pages(self, pages: int):
