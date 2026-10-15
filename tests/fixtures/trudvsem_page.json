@@ -1,0 +1,396 @@
+{
+  "status": "200",
+  "request": {
+    "api": "v1"
+  },
+  "meta": {
+    "total": 491482,
+    "limit": 5
+  },
+  "results": {
+    "vacancies": [
+      {
+        "vacancy": {
+          "id": "79041276-c7a4-11f1-9dff-97d306130813",
+          "source": "Вакансия работодателя",
+          "region": {
+            "region_code": "3600000000000",
+            "name": "Воронежская область"
+          },
+          "company": {
+            "companycode": "1197746496144",
+            "email": "user@example.com",
+            "hr-agency": false,
+            "inn": "7704498561",
+            "kpp": "770201001",
+            "name": "ООО \"ТРЕЙДПРОЕКТ\"",
+            "ogrn": "1197746496144",
+            "url": "https://trudvsem.ru/company/1197746496144"
+          },
+          "creation-date": "2026-10-14",
+          "date_modify": "2026-10-14T13:40:00+0300",
+          "salary": "от 40000",
+          "salary_min": 40000,
+          "salary_max": 55000,
+          "job-name": "Продавец-кассир",
+          "vac_url": "https://trudvsem.ru/vacancy/card/1197746496144/79041276-c7a4-11f1-9dff-97d306130813",
+          "schedule": "Сменная работа",
+          "qualification": "Продавец-кассир",
+          "requirements": "Ответственность, коммуникабельность, внимательность",
+          "duty": "Должностные обязанности принимать оплату на кассе (наличный и безналичный расчет); выкладывать товар на полки магазина и следить за сроками годности продукции; поддерживать чистоту в торговом зале и служебных помещениях. Условия: оформление по ТК РФ график работ 2/2 по 12 часов (дневные и ночные смены) удобное расположение: подбираем АЗС недалеко от вашего дома Оплата: фиксированная ставка + % от выручки АЗС за смену в среднем 40000 руб. в месяц после вычета налогов Вы можете увеличить свой доход дополнительными сменами, а также поднятием выручки в магазине доплата за выход в праздничные дни оплачиваемая стажировка Компенсации: мы компенсируем мед. книжку, фирменную одежду и обучение мы компенсируем проезд на общественном транспорте премии за трудоустройство друзей в компанию премии за участие в корпоративной жизни поддержка в сложных жизненных ситуациях новогодние праздники и подарки детям",
+          "category": {
+            "specialisation": "Продажи, закупки, снабжение, торговля"
+          },
+          "requirement": {
+            "education": "Среднее профессиональное образование",
+            "experience": 0
+          },
+          "addresses": {
+            "address": [
+              {
+                "location": "Воронежская область, Каширский район, Каширское село, 1, Воронежская область, Каширский район, придорожная полоса автомагистрали М4 \"Дон\" 550+000 (лево)",
+                "lng": "39.587829",
+                "lat": "51.408598"
+              }
+            ]
+          },
+          "social_protected": "",
+          "contact_list": [
+            {
+              "contact_type": "Эл. почта",
+              "contact_value": "user@example.com"
+            },
+            {
+              "contact_type": "Мобильный телефон",
+              "contact_value": "+7 (900) 000-00-00"
+            },
+            {
+              "contact_type": "Телефон",
+              "contact_value": "+7 (900) 000-00-00"
+            }
+          ],
+          "contact_person": "Контактное лицо",
+          "work_places": 3,
+          "code_profession": "203194",
+          "typicalPosition": "Продавец-кассир",
+          "skills": [],
+          "workPlaceType": {
+            "workPlaceForeign": false,
+            "workPlaceOrdinary": true,
+            "workPlaceQuota": false,
+            "workPlaceSpecial": false
+          },
+          "hireDate": "2026-10-26T03:00:00+0300",
+          "medicalDocuments": "Медицинская книжка",
+          "shift": [
+            "По графику сменности"
+          ],
+          "conditions": "Допустимые",
+          "trainingDays": 0,
+          "currency": "«руб.»"
+        }
+      },
+      {
+        "vacancy": {
+          "id": "77c1f3e8-f12c-11f0-980b-df6b4c87964b",
+          "source": "Вакансия работодателя",
+          "region": {
+            "region_code": "2200000000000",
+            "name": "Алтайский край"
+          },
+          "company": {
+            "companycode": "1042201647510",
+            "email": "user@example.com",
+            "hr-agency": false,
+            "inn": "2204018232",
+            "kpp": "220401001",
+            "name": "ООО \"ПАНТОПРОЕКТ\"",
+            "ogrn": "1042201647510",
+            "url": "https://trudvsem.ru/company/1042201647510"
+          },
+          "creation-date": "2026-01-14",
+          "date_modify": "2026-10-14T13:39:52+0300",
+          "salary": "от 57960",
+          "salary_min": 57960,
+          "salary_max": 57960,
+          "job-name": "технолог пищевой промышленности",
+          "vac_url": "https://trudvsem.ru/vacancy/card/1042201647510/77c1f3e8-f12c-11f0-980b-df6b4c87964b",
+          "employment": "Полная занятость",
+          "schedule": "Полный рабочий день",
+          "qualification": "1",
+          "requirements": "Опыт работы технологом на фармпроизводстве или производстве БАД от 3-х лет, высшее образование, знание технологии производства БАД и косметической продукции, знание производственного оборудования, опыт ведения технологической документации, разработки и сертификации новой продукции, составления инструкций.",
+          "duty": "Разработка и внедрение технологических процессов и режимов производства выпускаемой предприятием продукции, обеспечивающих улучшение ее качества. Внедрение новых технологических приемов. Разработка новой продукции и ее регистрация в гос. органах (БАД, косметические средства, функциональное питание). Разработка документов по ХАССП.",
+          "category": {
+            "specialisation": "Пищевая промышленность"
+          },
+          "requirement": {
+            "education": "Среднее профессиональное образование",
+            "experience": 3
+          },
+          "addresses": {
+            "address": [
+              {
+                "location": "Алтайский край, г Бийск, Льва Толстого улица, 150, Бийск, ул.Иркутская, 26",
+                "lng": "85.230322",
+                "lat": "52.546368"
+              }
+            ]
+          },
+          "social_protected": "",
+          "contact_list": [
+            {
+              "contact_type": "Телефон",
+              "contact_value": "+7 (900) 000-00-00"
+            },
+            {
+              "contact_type": "Мобильный телефон",
+              "contact_value": "+7 (900) 000-00-00"
+            },
+            {
+              "contact_type": "Эл. почта",
+              "contact_value": "user@example.com"
+            },
+            {
+              "contact_type": "Другое",
+              "contact_value": "8(3854)335214"
+            }
+          ],
+          "contact_person": "Контактное лицо",
+          "work_places": 1,
+          "code_profession": "204058",
+          "typicalPosition": "Инженер-технолог/Технолог пищевого производства",
+          "skills": [],
+          "workPlaceType": {
+            "workPlaceForeign": false,
+            "workPlaceOrdinary": true,
+            "workPlaceQuota": false,
+            "workPlaceSpecial": false
+          },
+          "shift": [],
+          "conditions": "Допустимые",
+          "trainingDays": 0,
+          "currency": "«руб.»"
+        }
+      },
+      {
+        "vacancy": {
+          "id": "97f006d8-c7a4-11f1-9dff-97d306130813",
+          "source": "Вакансия работодателя",
+          "region": {
+            "region_code": "3600000000000",
+            "name": "Воронежская область"
+          },
+          "company": {
+            "companycode": "1153702007194",
+            "email": "user@example.com",
+            "hr-agency": false,
+            "inn": "3702105465",
+            "kpp": "360401001",
+            "name": "ООО \"МСК\"",
+            "ogrn": "1153702007194",
+            "url": "https://trudvsem.ru/company/1153702007194"
+          },
+          "creation-date": "2026-10-14",
+          "date_modify": "2026-10-14T13:39:51+0300",
+          "salary": "от 50000",
+          "salary_min": 50000,
+          "salary_max": 50000,
+          "job-name": "Электромонтер по ремонту и обслуживанию электрооборудования",
+          "vac_url": "https://trudvsem.ru/vacancy/card/1153702007194/97f006d8-c7a4-11f1-9dff-97d306130813",
+          "employment": "Полная занятость",
+          "schedule": "Полный рабочий день",
+          "qualification": "не требуется",
+          "requirements": "Навыки работы по данной специальности, дисциплинированность, ответственность",
+          "duty": "Уточнить у работодателя на собеседовании",
+          "category": {
+            "specialisation": "ЖКХ, эксплуатация"
+          },
+          "requirement": {
+            "education": "Среднее профессиональное образование",
+            "experience": 1
+          },
+          "addresses": {
+            "address": [
+              {
+                "location": "Воронежская область, Поворинский район, Пески село, улицы Трудовая 2-й переулок, 5, г. Поворино, пл. Комсомольская, д. 2 (08.10.2026 г. ярмарка вакансий)",
+                "lng": "42.466561",
+                "lat": "51.252948"
+              }
+            ]
+          },
+          "social_protected": "",
+          "contact_list": [
+            {
+              "contact_type": "Телефон",
+              "contact_value": "+7 (900) 000-00-00"
+            }
+          ],
+          "contact_person": "Контактное лицо",
+          "work_places": 2,
+          "code_profession": "105534",
+          "typicalPosition": "Электромонтажник / Электромонтер",
+          "skills": [],
+          "workPlaceType": {
+            "workPlaceForeign": false,
+            "workPlaceOrdinary": true,
+            "workPlaceQuota": false,
+            "workPlaceSpecial": false
+          },
+          "shift": [],
+          "conditions": "Оптимальные",
+          "trainingDays": 0,
+          "currency": "«руб.»"
+        }
+      },
+      {
+        "vacancy": {
+          "id": "2baa5808-8f22-11f1-a766-b14aca3e6547",
+          "source": "Вакансия работодателя",
+          "region": {
+            "region_code": "2200000000000",
+            "name": "Алтайский край"
+          },
+          "company": {
+            "companycode": "1042201647510",
+            "email": "user@example.com",
+            "hr-agency": false,
+            "inn": "2204018232",
+            "kpp": "220401001",
+            "name": "ООО \"ПАНТОПРОЕКТ\"",
+            "ogrn": "1042201647510",
+            "url": "https://trudvsem.ru/company/1042201647510"
+          },
+          "creation-date": "2026-08-03",
+          "date_modify": "2026-10-14T13:39:51+0300",
+          "salary": "от 40000",
+          "salary_min": 40000,
+          "salary_max": 80000,
+          "job-name": "менеджер по продажам",
+          "vac_url": "https://trudvsem.ru/vacancy/card/1042201647510/2baa5808-8f22-11f1-a766-b14aca3e6547",
+          "employment": "Полная занятость",
+          "schedule": "Полный рабочий день",
+          "qualification": "1",
+          "requirements": "Ответственность, дисциплинированность, умение вести переговоры с потенциальными клиентами",
+          "duty": "Поиск клиентов, продвижение товара, умение вести переговоры с потенциальными клиентами, командировки для участия в выставках. Перелеты в другие города. Опыт работы 1-3 года",
+          "category": {
+            "specialisation": "Продажи, закупки, снабжение, торговля"
+          },
+          "requirement": {
+            "education": "Общее образование",
+            "experience": 1
+          },
+          "addresses": {
+            "address": [
+              {
+                "location": "Алтайский край, г Бийск, Льва Толстого улица, 150",
+                "lng": "85.240598",
+                "lat": "52.553142"
+              }
+            ]
+          },
+          "social_protected": "",
+          "contact_list": [
+            {
+              "contact_type": "Телефон",
+              "contact_value": "+7 (900) 000-00-00"
+            },
+            {
+              "contact_type": "Эл. почта",
+              "contact_value": "user@example.com"
+            }
+          ],
+          "contact_person": "Контактное лицо",
+          "work_places": 1,
+          "code_profession": "202058",
+          "typicalPosition": "Специалист по продажам",
+          "skills": [],
+          "addressOffice": "143",
+          "workPlaceType": {
+            "workPlaceForeign": false,
+            "workPlaceOrdinary": true,
+            "workPlaceQuota": false,
+            "workPlaceSpecial": false
+          },
+          "shift": [],
+          "conditions": "Допустимые",
+          "trainingDays": 0,
+          "currency": "«руб.»"
+        }
+      },
+      {
+        "vacancy": {
+          "id": "a785b948-8f15-11f1-a766-b14aca3e6547",
+          "source": "Вакансия работодателя",
+          "region": {
+            "region_code": "2200000000000",
+            "name": "Алтайский край"
+          },
+          "company": {
+            "companycode": "1042201647510",
+            "email": "user@example.com",
+            "hr-agency": false,
+            "inn": "2204018232",
+            "kpp": "220401001",
+            "name": "ООО \"ПАНТОПРОЕКТ\"",
+            "ogrn": "1042201647510",
+            "url": "https://trudvsem.ru/company/1042201647510"
+          },
+          "creation-date": "2026-08-03",
+          "date_modify": "2026-10-14T13:39:49+0300",
+          "salary": "от 37800",
+          "salary_min": 37800,
+          "salary_max": 37800,
+          "job-name": "Уборщик производственных и служебных помещений",
+          "vac_url": "https://trudvsem.ru/vacancy/card/1042201647510/a785b948-8f15-11f1-a766-b14aca3e6547",
+          "employment": "Полная занятость",
+          "schedule": "Неполный рабочий день/неполная рабочая неделя",
+          "qualification": "1",
+          "requirements": "санитарная книжка",
+          "duty": "Уборка производственных и офисных помещений 0,5 ставки",
+          "category": {
+            "specialisation": "Пищевая промышленность"
+          },
+          "requirement": {
+            "education": "Общее образование",
+            "experience": 1
+          },
+          "addresses": {
+            "address": [
+              {
+                "location": "Алтайский край, г Бийск, Льва Толстого улица, дом: 150;",
+                "lng": "85.240598",
+                "lat": "52.553142"
+              }
+            ]
+          },
+          "social_protected": "",
+          "contact_list": [
+            {
+              "contact_type": "Телефон",
+              "contact_value": "+7 (900) 000-00-00"
+            },
+            {
+              "contact_type": "Эл. почта",
+              "contact_value": "user@example.com"
+            }
+          ],
+          "contact_person": "Контактное лицо",
+          "work_places": 1,
+          "code_profession": "105149",
+          "typicalPosition": "Уборщик",
+          "skills": [],
+          "workPlaceType": {
+            "workPlaceForeign": false,
+            "workPlaceOrdinary": true,
+            "workPlaceQuota": false,
+            "workPlaceSpecial": false
+          },
+          "medicalDocuments": "Медицинская книжка",
+          "shift": [],
+          "trainingDays": 0,
+          "currency": "«руб.»"
+        }
+      }
+    ]
+  }
+}
