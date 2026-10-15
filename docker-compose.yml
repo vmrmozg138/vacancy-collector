@@ -1,0 +1,39 @@
+# Локальная база для разработки: PostgreSQL в контейнере с постоянным томом.
+#
+#   docker compose up -d          поднять базу в фоне
+#   docker compose ps             проверить состояние (ждём healthy)
+#   docker compose logs -f postgres
+#   docker compose down           остановить, данные остаются в томе
+#   docker compose down -v        остановить и стереть базу вместе с томом
+#
+# Версия образа зафиксирована на 17: в 18-м образе изменили путь каталога данных,
+# и привычный том /var/lib/postgresql/data приводит к падению контейнера при старте.
+#
+# Наружу отдан порт 5433, а не 5432: на 5432 на этой машине слушает локальный
+# PostgreSQL 18 (служба postgresql-x64-18, listen_addresses = '*', port = 5432),
+# и подключение к localhost:5432 уходило бы в него, а не в контейнер.
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: collector-postgres
+    environment:
+      POSTGRES_DB: collector
+      POSTGRES_USER: collector
+      # Только для локальной разработки. В боевой среде пароль приходит из окружения или секретов.
+      POSTGRES_PASSWORD: collector
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # Проверяем не «контейнер запущен», а «база готова принимать подключения»:
+      # PostgreSQL поднимается несколько секунд, и до этого момента подключения падают.
+      test: ["CMD-SHELL", "pg_isready -U collector -d collector"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
