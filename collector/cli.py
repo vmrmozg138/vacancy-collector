@@ -32,6 +32,7 @@ from collector.storage.repository import (
     count_regions,
     count_vacancies,
     region_match_stats,
+    save_raw_document,
     top_regions,
     upsert_regions,
     upsert_vacancies,
@@ -66,6 +67,11 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("stats", help="что уже собрано")
     subparsers.add_parser("districts", help="вакансии в разрезе федеральных округов")
     subparsers.add_parser("sources", help="список доступных источников")
+
+    render = subparsers.add_parser("render", help="нужен ли браузер, чтобы получить данные со страницы")
+    render.add_argument("--url", required=True, help="адрес страницы")
+    render.add_argument("--xpath", required=True, help="что искать на странице, например //div[@class='quote']")
+    render.add_argument("--wait-for", help="селектор, которого дождаться после загрузки")
     return parser
 
 
@@ -124,6 +130,36 @@ def cmd_districts(session_factory, logger: logging.Logger) -> int:
     return 0
 
 
+def cmd_render(args: argparse.Namespace, http: HttpClient, session_factory, logger: logging.Logger) -> int:
+    """Показать, нужен ли браузер: сравнить страницу до и после JavaScript и сохранить HTML."""
+    from collector.core.browser import BrowserNotAvailable, diagnose, render_html
+
+    renderer = lambda url: render_html(url, wait_for=args.wait_for)  # noqa: E731
+    try:
+        result = diagnose(args.url, args.xpath, http, renderer=renderer)
+    except BrowserNotAvailable as exc:
+        logger.error("браузер недоступен: %s", exc)
+        return 1
+
+    logger.info("без браузера (HTML от сервера): найдено %s элементов", result.static_count)
+    logger.info("с браузером (chromium): найдено %s элементов", result.rendered_count)
+    logger.info("вывод: %s", result.verdict)
+
+    if result.rendered_count:
+        page = renderer(args.url)
+        with session_factory() as session:
+            document = save_raw_document(
+                session,
+                source="browser-diagnostic",
+                url=args.url,
+                payload=page,
+                note=f"xpath={args.xpath}; найдено {result.rendered_count}",
+            )
+            session.commit()
+            logger.info("HTML после рендеринга сохранён в raw_documents (%s КБ)", document.size_bytes // 1024)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     settings = load_settings()
@@ -150,6 +186,10 @@ def main(argv: list[str] | None = None) -> int:
         max_retries=settings.max_retries,
         logger=logger,
     )
+
+    if args.command == "render":
+        return cmd_render(args, http, session_factory, logger)
+
     robots = RobotsCache(settings.user_agent, http, logger)
     source = make_source(args.source, http, robots, args)
     stats = run_source(

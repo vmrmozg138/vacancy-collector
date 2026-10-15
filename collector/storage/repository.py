@@ -141,17 +141,23 @@ def save_raw_document(
     content_type: str = "text/html",
     note: str | None = None,
 ) -> RawDocument:
-    """Сохранить сырой ответ источника (например, HTML после рендеринга браузером)."""
-    document = RawDocument(
-        source=source,
-        url=url,
-        content_type=content_type,
-        size_bytes=len(payload.encode("utf-8")),
-        payload=payload,
-        note=note,
-        fetched_at=utcnow(),
+    """Сохранить сырой ответ источника, обновив его, если такой адрес уже встречался.
+
+    На один адрес хранится один документ: иначе повторные прогоны раздували бы таблицу
+    копиями одной и той же страницы.
+    """
+    document = session.scalar(
+        select(RawDocument).where(RawDocument.source == source, RawDocument.url == url)
     )
-    session.merge(document)
+    if document is None:
+        document = RawDocument(source=source, url=url)
+        session.add(document)
+
+    document.content_type = content_type
+    document.size_bytes = len(payload.encode("utf-8"))
+    document.payload = payload
+    document.note = note
+    document.fetched_at = utcnow()
     return document
 
 

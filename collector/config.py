@@ -31,6 +31,11 @@ class Settings:
     delay: float = field(default_factory=lambda: float(os.getenv("COLLECTOR_DELAY", "0.5")))
     max_retries: int = field(default_factory=lambda: int(os.getenv("COLLECTOR_MAX_RETRIES", "4")))
     log_file: str = field(default_factory=lambda: os.getenv("COLLECTOR_LOG_FILE", "collector.log"))
+    #: Куда Playwright складывает браузеры. Пусто — берётся папка проекта `.pw-browsers`,
+    #: если она есть, иначе стандартный путь Playwright в профиле пользователя.
+    playwright_browsers_path: str = field(
+        default_factory=lambda: os.getenv("PLAYWRIGHT_BROWSERS_PATH", "")
+    )
 
 
 def load_settings() -> Settings:

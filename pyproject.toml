@@ -29,4 +29,9 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-addopts = "-q"
+# По умолчанию идут только быстрые тесты без сети и браузера.
+# Интеграционные (нужен установленный Chromium или доступ в интернет): pytest -m integration
+addopts = "-q -m 'not integration'"
+markers = [
+    "integration: тесты, которым нужен браузер или доступ в сеть",
+]
