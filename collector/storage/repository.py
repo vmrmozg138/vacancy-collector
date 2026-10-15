@@ -11,10 +11,11 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Iterable, Sequence
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
@@ -218,14 +219,13 @@ def top_regions(session: Session, limit: int = 10) -> list[tuple[str, int]]:
 UNMATCHED = "не сопоставлено"
 
 
-def vacancies_by_district(session: Session, limit: int = 20) -> list[tuple[str, int]]:
-    """Вакансии в разрезе федеральных округов — то, ради чего собирался справочник.
+def _region_map_subquery():
+    """Соответствие «нормализованное название региона → федеральный округ».
 
-    Сопоставление идёт по нормализованному названию региона. Справочник берётся
-    через подзапрос с группировкой: иначе при повторе ключа в справочнике join
-    размножил бы вакансии и цифры в отчёте были бы завышены.
+    Подзапрос с группировкой нужен, чтобы повтор ключа в справочнике не размножал вакансии
+    и не завышал цифры в отчётах.
     """
-    region_map = (
+    return (
         select(
             Region.name_key.label("name_key"),
             func.min(Region.federal_district).label("federal_district"),
@@ -234,6 +234,11 @@ def vacancies_by_district(session: Session, limit: int = 20) -> list[tuple[str, 
         .group_by(Region.name_key)
         .subquery()
     )
+
+
+def vacancies_by_district(session: Session, limit: int = 20) -> list[tuple[str, int]]:
+    """Вакансии в разрезе федеральных округов — то, ради чего собирался справочник."""
+    region_map = _region_map_subquery()
     district = func.coalesce(region_map.c.federal_district, UNMATCHED).label("district")
     query = (
         select(district, func.count(Vacancy.id).label("total"))
@@ -244,6 +249,71 @@ def vacancies_by_district(session: Session, limit: int = 20) -> list[tuple[str, 
         .limit(limit)
     )
     return [(name or UNMATCHED, int(total)) for name, total in session.execute(query).all()]
+
+
+@dataclass(slots=True)
+class VacancyQuery:
+    """Условия отбора вакансий для отчёта и выгрузки."""
+
+    text: str | None = None
+    region: str | None = None
+    district: str | None = None
+    salary_min: int | None = None
+    remote_only: bool = False
+    limit: int = 200
+
+
+@dataclass(slots=True)
+class VacancyRow:
+    """Вакансия вместе с федеральным округом из справочника."""
+
+    vacancy: Vacancy
+    federal_district: str | None
+
+
+def search_vacancies(session: Session, query_spec: VacancyQuery) -> list[VacancyRow]:
+    """Найти вакансии по условиям. Используется командой выгрузки."""
+    region_map = _region_map_subquery()
+    query = (
+        select(Vacancy, region_map.c.federal_district)
+        .select_from(Vacancy)
+        .outerjoin(region_map, region_map.c.name_key == Vacancy.region_key)
+    )
+
+    if query_spec.text:
+        pattern = f"%{query_spec.text}%"
+        query = query.where(
+            or_(
+                Vacancy.title.ilike(pattern),
+                Vacancy.company.ilike(pattern),
+                Vacancy.region.ilike(pattern),
+            )
+        )
+    if query_spec.region:
+        query = query.where(
+            or_(Vacancy.region.ilike(f"%{query_spec.region}%"), Vacancy.region_key == normalize_name(query_spec.region))
+        )
+    if query_spec.district:
+        query = query.where(region_map.c.federal_district.ilike(f"%{query_spec.district}%"))
+    if query_spec.salary_min is not None:
+        # Если верхняя граница не указана, сравниваем с нижней: это лучше, чем отбросить вакансию.
+        query = query.where(
+            func.coalesce(Vacancy.salary_max, Vacancy.salary_min) >= query_spec.salary_min
+        )
+    if query_spec.remote_only:
+        # Признак удалёнки ищем в исходном JSON: отдельного поля источник не отдаёт.
+        # Регистр проверяем явно, потому что SQLite-функция lower() не знает кириллицу.
+        query = query.where(
+            or_(
+                Vacancy.raw.like("%удал%"),
+                Vacancy.raw.like("%Удал%"),
+                Vacancy.raw.like("%дистанц%"),
+                Vacancy.raw.like("%Дистанц%"),
+            )
+        )
+
+    query = query.order_by(Vacancy.published_at.desc(), Vacancy.id.desc()).limit(query_spec.limit)
+    return [VacancyRow(vacancy=row[0], federal_district=row[1]) for row in session.execute(query).all()]
 
 
 def region_match_stats(session: Session) -> tuple[int, int]:

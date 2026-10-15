@@ -35,5 +35,25 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # Приложение в контейнере — отдельный профиль. Обычный `docker compose up -d` поднимает
+  # только базу, а сборщик запускается локально через Poetry: во время разработки так удобнее.
+  #
+  #   docker compose --profile app build
+  #   docker compose --profile app run --rm app run --source trudvsem --pages 2
+  #
+  # Внутри сети адрес базы — postgres:5432 (внутренний порт, не 5433: тот нужен только снаружи),
+  # поэтому строка подключения здесь отличается от той, что в .env.
+  app:
+    build: .
+    profiles: ["app"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      COLLECTOR_DB_URL: postgresql+psycopg://collector:collector@postgres:5432/collector
+    volumes:
+      # Выгрузки складываем на хост, иначе они останутся внутри контейнера.
+      - ./exports:/app/exports
+
 volumes:
   postgres_data:
