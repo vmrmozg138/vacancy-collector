@@ -1,13 +1,14 @@
 """CLI сборщика.
 
 Примеры:
-    python -m collector.cli run --source trudvsem --pages 3 --limit 50
-    python -m collector.cli run --source trudvsem --pages 2 --text python
+    python -m collector.cli sweep --since 7d --text "python,аналитик данных"   # собрать за неделю
+    python -m collector.cli sweep --since 2026-10-15T00:00 --until 2026-10-16T00:00 --estimate
+    python -m collector.cli run --source trudvsem --pages 2 --limit 50
     python -m collector.cli run --source wikipedia-regions      # справочник регионов
     python -m collector.cli stats
     python -m collector.cli districts                            # вакансии по федеральным округам
     python -m collector.cli report --region Москва --salary-min 150000   # HTML-отчёт
-    python -m collector.cli export --format xlsx --remote        # выгрузка в Excel
+    python -m collector.cli export --format xlsx --exclude "дворник,плиточник"
     python -m collector.cli sources
 """
 
@@ -16,6 +17,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy import select
@@ -25,6 +27,7 @@ from collector.core.http import HttpClient
 from collector.core.logging_setup import setup_logging
 from collector.core.pipeline import Sink, run_source
 from collector.core.robots import RobotsCache
+from collector.core.timeutils import parse_duration, parse_moment
 from collector.sources.base import Source
 from collector.sources.trudvsem_api import TrudvsemSource
 from collector.sources.wikipedia_regions import WikipediaRegionsSource
@@ -36,6 +39,7 @@ from collector.storage.repository import (
     count_regions,
     count_search_vacancies,
     count_vacancies,
+    ensure_search_keys,
     region_match_stats,
     save_raw_document,
     search_vacancies,
@@ -57,13 +61,28 @@ SINKS: dict[str, Sink] = {
 }
 
 
+def split_list(value: str | None) -> tuple[str, ...]:
+    """Разобрать список через запятую: «python, аналитик данных» → два запроса."""
+    if not value:
+        return ()
+    return tuple(part.strip() for part in value.split(",") if part.strip())
+
+
 def add_filter_arguments(parser: argparse.ArgumentParser, default_limit: int) -> None:
     """Фильтры отбора вакансий. Одинаковы для отчёта и выгрузки — их и описываем один раз."""
-    parser.add_argument("--text", help="подстрока в названии, компании или регионе")
+    parser.add_argument(
+        "--text",
+        help="поисковые подстроки через запятую: «python,django,backend» — подходит, если совпала любая",
+    )
     parser.add_argument("--region", help="регион (подстрока или точное название)")
     parser.add_argument("--district", help="федеральный округ, например «Сибирский»")
     parser.add_argument("--salary-min", type=int, help="зарплата не ниже указанной (по верхней границе вакансии)")
     parser.add_argument("--remote", action="store_true", help="только вакансии с признаком удалённой работы")
+    parser.add_argument(
+        "--exclude",
+        help="слова через запятую: вакансии с ними в названии не попадут в отчёт или файл "
+        "(например: «дворник,плиточник,уборщик,продавец,водитель»)",
+    )
     parser.add_argument("--limit", type=int, default=default_limit, help="сколько записей взять")
 
 
@@ -97,6 +116,21 @@ def build_parser() -> argparse.ArgumentParser:
     report = subparsers.add_parser("report", help="собрать HTML-страницу с отобранными вакансиями")
     report.add_argument("--out", default="exports/report.html", help="куда записать страницу")
     add_filter_arguments(report, default_limit=500)
+
+    sweep = subparsers.add_parser(
+        "sweep",
+        help="собрать всё за период, деля окно времени (обходит сломанную пагинацию источника)",
+    )
+    sweep.add_argument("--since", default="24h", help="начало периода: 2026-10-15, 2026-10-15T08:00 или 24h, 7d, 2h")
+    sweep.add_argument("--until", help="конец периода (по умолчанию — сейчас)")
+    sweep.add_argument(
+        "--text",
+        help="поисковые запросы через запятую: «python,аналитик данных,sql». Не указан — собираем всё",
+    )
+    sweep.add_argument("--window", default="1m", help="минимальная ширина окна: 30s, 1m, 2h")
+    sweep.add_argument("--limit", type=int, default=100, help="размер страницы источника (1..100)")
+    sweep.add_argument("--max-requests", type=int, help="бюджет запросов: остановиться, когда исчерпан")
+    sweep.add_argument("--estimate", action="store_true", help="только оценить объём, ничего не собирать")
     return parser
 
 
@@ -188,11 +222,12 @@ def cmd_render(args: argparse.Namespace, http: HttpClient, session_factory, logg
 def make_query_spec(args: argparse.Namespace) -> VacancyQuery:
     """Условия отбора собираются в одном месте — отчёт и выгрузка понимают фильтры одинаково."""
     return VacancyQuery(
-        text=args.text,
+        texts=split_list(getattr(args, "text", None)),
         region=args.region,
         district=args.district,
         salary_min=args.salary_min,
         remote_only=args.remote,
+        exclude_text=split_list(getattr(args, "exclude", None)),
         limit=args.limit,
     )
 
@@ -255,6 +290,87 @@ def cmd_report(args: argparse.Namespace, session_factory, logger: logging.Logger
     return 0
 
 
+def cmd_sweep(args: argparse.Namespace, http: HttpClient, session_factory, logger: logging.Logger) -> int:
+    """Собрать всё за период: окна времени делятся пополам, пока не уложатся в лимит источника.
+
+    Зачем так, а не страницами: пагинация источника сломана (`offset` глубже сотни записей даёт
+    HTTP 500), зато работает фильтр по дате изменения. Подробности — в core/sweep.py.
+    """
+    from collector.core.sweep import estimate_period, sweep_period
+
+    try:
+        since = parse_moment(args.since)
+        until = parse_moment(args.until) if args.until else datetime.now(timezone.utc)
+        min_window = parse_duration(args.window)
+    except ValueError as exc:
+        logger.error("%s", exc)
+        return 2
+
+    texts = split_list(args.text) or (None,)
+    if not texts:
+        texts = (None,)
+
+    logger.info(
+        "период: %s — %s (запросов на источнике: %s)",
+        since.isoformat(timespec="seconds"),
+        until.isoformat(timespec="seconds"),
+        ", ".join(f"«{text}»" if text else "без фильтра по тексту" for text in texts),
+    )
+
+    if args.estimate:
+        total_requests = 0
+        for text in texts:
+            source = TrudvsemSource(http, limit=args.limit, text=text)
+            try:
+                total = estimate_period(source, since, until)
+            except Exception as exc:
+                logger.error("«%s»: не удалось получить оценку: %s", text or "без фильтра", exc)
+                continue
+            # Грубая, но полезная прикидка: листьев примерно total/limit, плюс столько же
+            # внутренних узлов дерева. Реальное число будет меньше — окна заполняются неравномерно.
+            requests_estimate = max(2, 2 * -(-total // max(1, args.limit)))
+            total_requests += requests_estimate
+            logger.info(
+                "«%s»: источник заявляет %s записей; ориентировочно %s запросов (это нижняя оценка)",
+                text or "без фильтра",
+                total,
+                requests_estimate,
+            )
+        logger.info("итого ориентировочно запросов: %s (пауза между ними %s с)", total_requests, http.delay)
+        return 0
+
+    summary: list[str] = []
+    for text in texts:
+        source = TrudvsemSource(http, limit=args.limit, text=text)
+        label = text or "без фильтра по тексту"
+        logger.info("=== сбор: %s ===", label)
+        try:
+            result = sweep_period(
+                source,
+                session_factory,
+                since,
+                until,
+                logger,
+                min_window=min_window,
+                max_requests=args.max_requests,
+            )
+        except ValueError as exc:
+            logger.error("%s", exc)
+            return 2
+        summary.append(
+            f"{label}: окон {result.windows_done}, записей {result.stats.items_parsed}, "
+            f"новых {result.stats.items_inserted}"
+            + (f", обрезанных окон {result.truncated_windows}" if result.truncated_windows else "")
+            + (", бюджет запросов исчерпан" if result.stopped_early else "")
+        )
+
+    with session_factory() as session:
+        logger.info("в базе теперь: вакансий %s, регионов %s", count_vacancies(session), count_regions(session))
+    for line in summary:
+        logger.info("итог: %s", line)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     settings = load_settings()
@@ -268,6 +384,12 @@ def main(argv: list[str] | None = None) -> int:
     db_url = args.db or settings.db_url
     engine, session_factory = create_db(db_url)
     logger.info("база: %s (диалект: %s)", db_url, healthcheck(engine))
+
+    # Поисковые ключи появились позже самих данных: у старых записей они пустые, и фильтры
+    # по русским словам молча теряли бы вакансии. Заполняем при первом запуске.
+    filled = ensure_search_keys(session_factory)
+    if filled:
+        logger.info("поисковые ключи заполнены у %s записей", filled)
 
     if args.command == "stats":
         return cmd_stats(session_factory, logger)
@@ -285,6 +407,9 @@ def main(argv: list[str] | None = None) -> int:
         max_retries=settings.max_retries,
         logger=logger,
     )
+
+    if args.command == "sweep":
+        return cmd_sweep(args, http, session_factory, logger)
 
     if args.command == "render":
         return cmd_render(args, http, session_factory, logger)

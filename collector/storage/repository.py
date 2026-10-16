@@ -20,7 +20,7 @@ from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from collector.core.normalize import normalize_name
+from collector.core.normalize import normalize_name, search_key
 from collector.core.remote import ALL_REMOTE_MARKERS
 from collector.core.stats import RunStats
 from collector.core.timeutils import utcnow
@@ -34,6 +34,8 @@ UPDATABLE_VACANCY_COLUMNS = (
     "company_inn",
     "region",
     "region_key",
+    "title_key",
+    "company_key",
     "salary_min",
     "salary_max",
     "currency",
@@ -70,9 +72,35 @@ def item_to_row(item: Item) -> dict[str, Any]:
 
     if isinstance(item, VacancyItem):
         row["region_key"] = normalize_name(item.region)
+        # Поисковые ключи считаем здесь же, при записи: тогда поиск не зависит от того,
+        # умеет ли `lower()` в этой СУБД работать с кириллицей (SQLite — не умеет).
+        row["title_key"] = search_key(item.title)
+        row["company_key"] = search_key(item.company)
     elif isinstance(item, RegionItem):
         row["name_key"] = normalize_name(item.name)
     return row
+
+
+def ensure_search_keys(session_factory, batch: int = 500) -> int:
+    """Заполнить поисковые ключи у записей, добавленных до появления этих колонок.
+
+    Облегчённая замена миграции данных: схема добавляет колонки, но не может наполнить их
+    осмысленно (SQLite не умеет `lower()` для кириллицы), поэтому ключи считаются в Python
+    и записываются пачками. Возвращает число обработанных строк.
+    """
+    filled = 0
+    while True:
+        with session_factory() as session:
+            vacancies = session.scalars(
+                select(Vacancy).where(Vacancy.title_key.is_(None)).limit(batch)
+            ).all()
+            if not vacancies:
+                return filled
+            for vacancy in vacancies:
+                vacancy.title_key = search_key(vacancy.title)
+                vacancy.company_key = search_key(vacancy.company)
+            session.commit()
+            filled += len(vacancies)
 
 
 def upsert_items(
@@ -256,11 +284,15 @@ def vacancies_by_district(session: Session, limit: int = 20) -> list[tuple[str, 
 class VacancyQuery:
     """Условия отбора вакансий для отчёта и выгрузки."""
 
-    text: str | None = None
+    #: Поисковые подстроки. Их может быть несколько — тогда вакансия подходит, если
+    #: совпало хотя бы одно («python» или «django»): так одним отчётом собирают направление.
+    texts: tuple[str, ...] = ()
     region: str | None = None
     district: str | None = None
     salary_min: int | None = None
     remote_only: bool = False
+    #: Слова, которых в названии быть не должно: «дворник», «плиточник», «уборщик».
+    exclude_text: tuple[str, ...] = ()
     limit: int = 200
 
 
@@ -274,15 +306,25 @@ class VacancyRow:
 
 def _apply_filters(query, query_spec: VacancyQuery, region_map):
     """Добавить к запросу условия отбора. Один набор условий для отчёта и выгрузки."""
-    if query_spec.text:
-        pattern = f"%{query_spec.text}%"
-        query = query.where(
-            or_(
-                Vacancy.title.ilike(pattern),
-                Vacancy.company.ilike(pattern),
-                Vacancy.region.ilike(pattern),
+    if query_spec.texts:
+        # Ищем по ключам в нижнем регистре: тогда «программист» находит и «Программист»,
+        # и результат одинаков в SQLite и PostgreSQL (см. core/normalize.search_key).
+        # Несколько подстрок соединяются через «или»: вакансия подходит, если совпала любая.
+        conditions = []
+        for needle in query_spec.texts:
+            pattern = f"%{search_key(needle)}%"
+            conditions.extend(
+                [
+                    Vacancy.title_key.like(pattern),
+                    Vacancy.company_key.like(pattern),
+                    Vacancy.region.ilike(f"%{needle}%"),
+                ]
             )
-        )
+        query = query.where(or_(*conditions))
+    for word in query_spec.exclude_text:
+        cleaned = search_key(word)
+        if cleaned:
+            query = query.where(Vacancy.title_key.not_like(f"%{cleaned}%"))
     if query_spec.region:
         query = query.where(
             or_(Vacancy.region.ilike(f"%{query_spec.region}%"), Vacancy.region_key == normalize_name(query_spec.region))

@@ -142,9 +142,13 @@ h2 { font-size: 15px; margin: 0 0 12px; text-transform: uppercase; letter-spacin
 }
 .filters .check { flex-direction: row; align-items: center; gap: 6px; padding-bottom: 7px; }
 .counter { margin-left: auto; color: #5b6470; font-size: 13px; padding-bottom: 7px; }
-table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e2e5ea; border-radius: 10px; overflow: hidden; }
+table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e2e5ea; }
 th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid #eef1f5; vertical-align: top; font-size: 13.5px; }
-th { background: #f9fafc; position: sticky; top: 73px; z-index: 1; font-size: 12.5px; color: #5b6470; text-transform: uppercase; letter-spacing: .03em; }
+/* Шапка «прилипает» под панелью фильтров. Высоту панели считает JS и кладёт в переменную:
+   на узком окне фильтры переносятся на две строки, и жёсткие 73px тут не годятся.
+   Важно: у самой таблицы не должно быть overflow: hidden — иначе она становится
+   отдельным контейнером прокрутки, шапка прилипает к таблице и наезжает на первую строку. */
+th { background: #f9fafc; position: sticky; top: var(--filters-height, 73px); z-index: 1; font-size: 12.5px; color: #5b6470; text-transform: uppercase; letter-spacing: .03em; }
 tbody tr:hover { background: #f7f9ff; }
 td.title { min-width: 220px; max-width: 320px; }
 td.title a { color: #1a4fd6; text-decoration: none; font-weight: 500; }
@@ -208,6 +212,18 @@ JS = """
     el.addEventListener('change', apply);
   });
   sort.addEventListener('change', reorder);
+
+  // Высота панели фильтров меняется (перенос строк на узком окне), а шапка таблицы
+  // должна прилипать ровно под ней — поэтому считаем её и отдаём в CSS-переменную.
+  var filters = document.querySelector('.filters');
+  function syncFiltersHeight() {
+    if (filters) {
+      document.documentElement.style.setProperty('--filters-height', filters.offsetHeight + 'px');
+    }
+  }
+  window.addEventListener('resize', syncFiltersHeight);
+  syncFiltersHeight();
+
   apply();
 })();
 """
@@ -290,11 +306,12 @@ def render_report_html(
     summary = build_summary(rows, len(rows))
 
     conditions = [
-        f"текст: «{query_spec.text}»" if query_spec.text else "",
+        "текст: " + ", ".join(f"«{text}»" for text in query_spec.texts) if query_spec.texts else "",
         f"регион: «{query_spec.region}»" if query_spec.region else "",
         f"округ: «{query_spec.district}»" if query_spec.district else "",
         f"зарплата от {query_spec.salary_min:,}".replace(",", " ") if query_spec.salary_min else "",
         "только удалённые" if query_spec.remote_only else "",
+        "исключено: " + ", ".join(query_spec.exclude_text) if query_spec.exclude_text else "",
     ]
     conditions_text = "; ".join(filter(None, conditions)) or "без фильтров"
 

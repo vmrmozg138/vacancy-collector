@@ -154,11 +154,12 @@ def _write_summary_sheet(
     sheet["B6"].font = Font(bold=True)
 
     filters = [
-        f"текст: {query_spec.text}" if query_spec.text else "",
+        "текст: " + ", ".join(query_spec.texts) if query_spec.texts else "",
         f"регион: {query_spec.region}" if query_spec.region else "",
         f"округ: {query_spec.district}" if query_spec.district else "",
         f"зарплата от {query_spec.salary_min}" if query_spec.salary_min else "",
         "только удалённые" if query_spec.remote_only else "",
+        "исключено: " + ", ".join(query_spec.exclude_text) if query_spec.exclude_text else "",
     ]
     sheet.append(["отбор", "; ".join(filter(None, filters)) or "без фильтров"])
     sheet.append(["вакансий в отчёте", len(rows)])

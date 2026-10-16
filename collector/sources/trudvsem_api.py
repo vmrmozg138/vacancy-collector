@@ -5,6 +5,21 @@ API: https://opendata.trudvsem.ru/api/v1/vacancies
 Проверено 15.10.2026: в базе ~491 000 вакансий, фильтр text работает (например, text=python → 409),
 пагинация через offset подтверждена.
 
+**Что выяснилось 16.10.2026 (важно для сбора больших объёмов):**
+
+* пагинация фактически ограничена: `limit=100&offset=100` отвечает HTTP 500, глубокий offset —
+  пустой ответ, а `meta.total` не описывает доступное (заявлено 406 по «python», реально видны 106).
+  То есть **один запрос отдаёт около сотни записей, и страницами больше не получить**;
+* зато работает фильтр по дате изменения — `modifiedFrom`/`modifiedTo`, причём формат строгий:
+  только ISO с поясом (`2026-10-15T00:00:00+03:00` или `...Z`); `+0300`, миллисекунды и просто дата
+  дают HTTP 500;
+* если в окне времени записей меньше лимита, источник отдаёт их **все** (проверено: `text=python`
+  за сутки — 16 записей из 16). Это и есть способ собрать больше сотни: `core/sweep.py` делит
+  период пополам, пока окно не станет достаточно узким.
+
+Прочие параметры (`dateFrom`, `regionCode`, `companyCode`, `sort`, `order`) источник молча
+игнорирует — проверено, выдача и `total` не меняются.
+
 Почему этот источник первым: у него есть официальное API, а значит не нужен парсинг HTML
 и нет риска сломаться от изменения вёрстки. Правило простое: сначала API, HTML — только
 если API нет, браузер — только если данные рисует JavaScript.
@@ -12,10 +27,11 @@ API: https://opendata.trudvsem.ru/api/v1/vacancies
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Iterator
 
 from collector.core.http import HttpClient
-from collector.core.timeutils import parse_date
+from collector.core.timeutils import parse_date, to_api_moment
 from collector.sources.base import VacancyItem, Source
 
 
@@ -49,6 +65,40 @@ class TrudvsemSource(Source):
             if self.text:
                 params["text"] = self.text
             yield self.http.get_json(self.BASE_URL, params=params)
+
+    def fetch_window(
+        self,
+        modified_from: datetime | None = None,
+        modified_to: datetime | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        """Запросить вакансии, изменённые в указанном промежутке времени.
+
+        Это единственный рабочий способ получить больше сотни записей: пагинация у источника
+        сломана, а окно по времени отдаётся целиком, если записей в нём меньше лимита.
+        Границы передаются в UTC с «Z» — см. `to_api_moment`.
+        """
+        params: dict[str, Any] = {"limit": limit or self.limit}
+        if self.text:
+            params["text"] = self.text
+        if modified_from is not None:
+            params["modifiedFrom"] = to_api_moment(modified_from)
+        if modified_to is not None:
+            params["modifiedTo"] = to_api_moment(modified_to)
+        return self.http.get_json(self.BASE_URL, params=params)
+
+    @staticmethod
+    def window_total(payload: Any) -> int:
+        """Сколько всего записей в этом окне по данным источника.
+
+        Именно с этим числом сравнивается размер полученной пачки: если источник отдал меньше,
+        чем у него есть, окно надо делить.
+        """
+        meta = (payload or {}).get("meta") or {}
+        try:
+            return int(meta.get("total") or 0)
+        except (TypeError, ValueError):
+            return 0
 
     def parse_page(self, payload: Any) -> list[VacancyItem]:
         """Разобрать ответ API. Битые записи пропускаем, а не роняем запуск."""

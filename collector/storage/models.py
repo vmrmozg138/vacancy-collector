@@ -48,6 +48,10 @@ class Vacancy(Base):
     region: Mapped[str | None] = mapped_column(String(200))
     #: Нормализованное название региона — ключ для связи со справочником `regions`.
     region_key: Mapped[str | None] = mapped_column(String(200))
+    #: Поисковые ключи (нижний регистр, «ё» → «е»). Нужны потому, что `lower()` в SQLite
+    #: не понимает кириллицу, и поиск «программист» терял вакансии «Программист».
+    title_key: Mapped[str | None] = mapped_column(String(500))
+    company_key: Mapped[str | None] = mapped_column(String(500))
     salary_min: Mapped[int | None] = mapped_column(Integer)
     salary_max: Mapped[int | None] = mapped_column(Integer)
     currency: Mapped[str | None] = mapped_column(String(20))

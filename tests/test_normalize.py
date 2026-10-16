@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from collector.core.normalize import normalize_name
+from collector.core.normalize import normalize_name, search_key
 
 SAME_REGION = [
     ("Город Москва", "Москва"),
@@ -49,3 +49,18 @@ def test_key_is_readable() -> None:
     # Ключ не должен превращаться в набор символов: по нему потом ищут глазами в отчётах.
     assert normalize_name("Город Москва") == "москва"
     assert normalize_name("Чувашская Республика - Чувашия") == "чувашия чувашская"
+
+
+def test_search_key_lowercases_russian() -> None:
+    """Поисковый ключ приводит кириллицу к нижнему регистру — этого не умеет SQLite."""
+    assert search_key("Программист 1С") == "программист 1с"
+    assert search_key("ДВОРНИК") == "дворник"
+    assert search_key("Королёв") == "королев"
+    assert search_key("  Python   Developer ") == "python developer"
+    assert search_key(None) == ""
+
+
+def test_search_key_keeps_words_that_normalize_name_drops() -> None:
+    """Поисковый ключ не выбрасывает служебные слова: он ищет подстроку, а не сравнивает регионы."""
+    assert search_key("Город Москва") == "город москва"
+    assert normalize_name("Город Москва") == "москва"
