@@ -6,6 +6,8 @@
     python -m collector.cli run --source wikipedia-regions      # справочник регионов
     python -m collector.cli stats
     python -m collector.cli districts                            # вакансии по федеральным округам
+    python -m collector.cli report --region Москва --salary-min 150000   # HTML-отчёт
+    python -m collector.cli export --format xlsx --remote        # выгрузка в Excel
     python -m collector.cli sources
 """
 
@@ -32,6 +34,7 @@ from collector.storage.repository import (
     UNMATCHED,
     VacancyQuery,
     count_regions,
+    count_search_vacancies,
     count_vacancies,
     region_match_stats,
     save_raw_document,
@@ -52,6 +55,16 @@ SINKS: dict[str, Sink] = {
     "trudvsem": upsert_vacancies,
     "wikipedia-regions": upsert_regions,
 }
+
+
+def add_filter_arguments(parser: argparse.ArgumentParser, default_limit: int) -> None:
+    """Фильтры отбора вакансий. Одинаковы для отчёта и выгрузки — их и описываем один раз."""
+    parser.add_argument("--text", help="подстрока в названии, компании или регионе")
+    parser.add_argument("--region", help="регион (подстрока или точное название)")
+    parser.add_argument("--district", help="федеральный округ, например «Сибирский»")
+    parser.add_argument("--salary-min", type=int, help="зарплата не ниже указанной (по верхней границе вакансии)")
+    parser.add_argument("--remote", action="store_true", help="только вакансии с признаком удалённой работы")
+    parser.add_argument("--limit", type=int, default=default_limit, help="сколько записей взять")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -76,14 +89,14 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("--xpath", required=True, help="что искать на странице, например //div[@class='quote']")
     render.add_argument("--wait-for", help="селектор, которого дождаться после загрузки")
 
-    export = subparsers.add_parser("export", help="выгрузить отобранные вакансии в CSV")
-    export.add_argument("--out", default="exports/vacancies.csv", help="куда записать файл")
-    export.add_argument("--text", help="подстрока в названии, компании или регионе")
-    export.add_argument("--region", help="регион (подстрока или точное название)")
-    export.add_argument("--district", help="федеральный округ, например «Сибирский»")
-    export.add_argument("--salary-min", type=int, help="зарплата не ниже указанной (по верхней границе вакансии)")
-    export.add_argument("--remote", action="store_true", help="только вакансии с упоминанием удалёнки в описании")
-    export.add_argument("--limit", type=int, default=200, help="сколько строк выгрузить")
+    export = subparsers.add_parser("export", help="выгрузить отобранные вакансии в CSV или Excel")
+    export.add_argument("--format", choices=("csv", "xlsx"), default="csv", help="формат файла")
+    export.add_argument("--out", help="куда записать файл (по умолчанию exports/vacancies.<формат>)")
+    add_filter_arguments(export, default_limit=200)
+
+    report = subparsers.add_parser("report", help="собрать HTML-страницу с отобранными вакансиями")
+    report.add_argument("--out", default="exports/report.html", help="куда записать страницу")
+    add_filter_arguments(report, default_limit=500)
     return parser
 
 
@@ -172,11 +185,9 @@ def cmd_render(args: argparse.Namespace, http: HttpClient, session_factory, logg
     return 0
 
 
-def cmd_export(args: argparse.Namespace, session_factory, logger: logging.Logger) -> int:
-    """Выгрузить вакансии по условиям в CSV-файл."""
-    from collector.core.export import write_vacancies_csv
-
-    query_spec = VacancyQuery(
+def make_query_spec(args: argparse.Namespace) -> VacancyQuery:
+    """Условия отбора собираются в одном месте — отчёт и выгрузка понимают фильтры одинаково."""
+    return VacancyQuery(
         text=args.text,
         region=args.region,
         district=args.district,
@@ -184,8 +195,49 @@ def cmd_export(args: argparse.Namespace, session_factory, logger: logging.Logger
         remote_only=args.remote,
         limit=args.limit,
     )
+
+
+def cmd_export(args: argparse.Namespace, session_factory, logger: logging.Logger, db_url: str) -> int:
+    """Выгрузить вакансии по условиям в CSV или Excel."""
+    from collector.core.export import write_vacancies_csv
+
+    query_spec = make_query_spec(args)
     with session_factory() as session:
         rows = search_vacancies(session, query_spec)
+        found = count_search_vacancies(session, query_spec)
+
+    if not rows:
+        logger.info("по этим условиям ничего не найдено — проверьте фильтры или соберите больше данных")
+        return 0
+
+    destination = Path(args.out) if args.out else Path(f"exports/vacancies.{args.format}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+
+    if args.format == "xlsx":
+        from collector.core.xlsx import write_vacancies_xlsx
+
+        with destination.open("wb") as stream:
+            written = write_vacancies_xlsx(rows, stream, query_spec=query_spec, db_url=db_url)
+    else:
+        # utf-8-sig: Excel иначе не понимает кириллицу в CSV.
+        with destination.open("w", encoding="utf-8-sig", newline="") as stream:
+            written = write_vacancies_csv(rows, stream)
+
+    logger.info("выгружено вакансий: %s (всего под условия подходит %s)", written, found)
+    if found > written:
+        logger.info("в файл попали не все: поднимите --limit, сейчас он %s", args.limit)
+    logger.info("файл: %s", destination.resolve())
+    return 0
+
+
+def cmd_report(args: argparse.Namespace, session_factory, logger: logging.Logger, db_url: str) -> int:
+    """Собрать HTML-страницу с отобранными вакансиями: её открывают двойным кликом."""
+    from collector.core.report import write_report_html
+
+    query_spec = make_query_spec(args)
+    with session_factory() as session:
+        rows = search_vacancies(session, query_spec)
+        found = count_search_vacancies(session, query_spec)
 
     if not rows:
         logger.info("по этим условиям ничего не найдено — проверьте фильтры или соберите больше данных")
@@ -193,12 +245,13 @@ def cmd_export(args: argparse.Namespace, session_factory, logger: logging.Logger
 
     destination = Path(args.out)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    # utf-8-sig: Excel иначе не понимает кириллицу в CSV.
-    with destination.open("w", encoding="utf-8-sig", newline="") as stream:
-        written = write_vacancies_csv(rows, stream)
+    with destination.open("w", encoding="utf-8", newline="") as stream:
+        written = write_report_html(rows, stream, query_spec=query_spec, db_url=db_url)
 
-    logger.info("выгружено вакансий: %s", written)
-    logger.info("файл: %s", destination.resolve())
+    logger.info("в отчёте вакансий: %s (всего под условия подходит %s)", written, found)
+    if found > written:
+        logger.info("в отчёт попали не все: поднимите --limit, сейчас он %s", args.limit)
+    logger.info("страница: %s", destination.resolve())
     return 0
 
 
@@ -221,7 +274,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "districts":
         return cmd_districts(session_factory, logger)
     if args.command == "export":
-        return cmd_export(args, session_factory, logger)
+        return cmd_export(args, session_factory, logger, db_url)
+    if args.command == "report":
+        return cmd_report(args, session_factory, logger, db_url)
 
     http = HttpClient(
         user_agent=settings.user_agent,

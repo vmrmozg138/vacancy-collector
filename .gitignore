@@ -6,8 +6,12 @@ __pycache__/
 *.db
 *.log
 .pytest_cache/
+.pytest-tmp/
 .runtime/
 pytest-cache-files-*/
+
+# Профиль Chromium: создаётся при запуске браузера из проекта.
+.chrome-profile/
 
 # Браузеры Playwright: скачиваются локально (~150 МБ), в репозитории им не место.
 .pw-browsers/

@@ -182,6 +182,69 @@ def test_pipeline_survives_source_failure(session) -> None:
     assert "недоступен" in (stats.message or "")
 
 
+def test_iter_pages_uses_offset_not_page_number() -> None:
+    """Пагинация идёт через offset: у источника нет параметра «номер страницы».
+
+    Именно этот параметр и оказался ограничен: глубже сотни записей API отвечает пусто
+    или ошибкой (проверено на живом API 16.10.2026, см. README). Тест закрепляет наш
+    способ обращения к источнику, чтобы он не поехал незаметно.
+    """
+
+    class _RecordingHttp(HttpClient):
+        def __init__(self) -> None:
+            super().__init__("test-agent", delay=0)
+            self.calls: list[dict[str, Any]] = []
+
+        def get_json(self, url: str, params: dict[str, Any] | None = None) -> Any:
+            self.calls.append(dict(params or {}))
+            return {"results": {"vacancies": []}}
+
+    http = _RecordingHttp()
+    source = TrudvsemSource(http, limit=5, text="python")
+    list(source.iter_pages(3))
+
+    assert [call["offset"] for call in http.calls] == [0, 5, 10]
+    assert all(call["limit"] == 5 for call in http.calls)
+    assert all(call["text"] == "python" for call in http.calls)
+
+
+def test_pipeline_handles_exhausted_pagination(session) -> None:
+    """Страницы, которые источник отдаёт пустыми, — не сбой: прогон завершается штатно.
+
+    Так выглядит ограничение пагинации с нашей стороны: первая страница пришла,
+    дальше источник отдал пустоту. Это надо пережить без ошибки и без падения.
+    """
+    import logging
+
+    class _FirstPageOnly(Source):
+        name = "stub"
+        http = None  # type: ignore[assignment]
+
+        def __init__(self) -> None:
+            self.http = None  # type: ignore[assignment]
+            self.robots = None
+
+        def iter_pages(self, pages: int) -> Iterator[Any]:
+            for index in range(pages):
+                yield [1, 2] if index == 0 else []
+
+        def parse_page(self, payload: Any) -> list[VacancyItem]:
+            return [
+                VacancyItem(source=self.name, external_id=str(value), title=f"Вакансия {value}")
+                for value in payload
+            ]
+
+    _, session_factory = _session_factory_for(session)
+    stats = run_source(_FirstPageOnly(), session_factory, pages=3, logger=logging.getLogger("test"))
+
+    assert stats.status == "ok"
+    assert stats.pages_fetched == 3
+    assert stats.items_parsed == 2
+    assert stats.items_inserted == 2
+    assert stats.errors == 0
+    assert count_vacancies(session) == 2
+
+
 def _session_factory_for(session):
     """Фабрика сессий, отдающая ту же самую сессию, что и тест."""
     from contextlib import contextmanager

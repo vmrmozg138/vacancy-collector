@@ -21,6 +21,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from collector.core.normalize import normalize_name
+from collector.core.remote import ALL_REMOTE_MARKERS
 from collector.core.stats import RunStats
 from collector.core.timeutils import utcnow
 from collector.sources.base import Item, RegionItem, VacancyItem
@@ -271,15 +272,8 @@ class VacancyRow:
     federal_district: str | None
 
 
-def search_vacancies(session: Session, query_spec: VacancyQuery) -> list[VacancyRow]:
-    """Найти вакансии по условиям. Используется командой выгрузки."""
-    region_map = _region_map_subquery()
-    query = (
-        select(Vacancy, region_map.c.federal_district)
-        .select_from(Vacancy)
-        .outerjoin(region_map, region_map.c.name_key == Vacancy.region_key)
-    )
-
+def _apply_filters(query, query_spec: VacancyQuery, region_map):
+    """Добавить к запросу условия отбора. Один набор условий для отчёта и выгрузки."""
     if query_spec.text:
         pattern = f"%{query_spec.text}%"
         query = query.where(
@@ -303,17 +297,43 @@ def search_vacancies(session: Session, query_spec: VacancyQuery) -> list[Vacancy
     if query_spec.remote_only:
         # Признак удалёнки ищем в исходном JSON: отдельного поля источник не отдаёт.
         # Регистр проверяем явно, потому что SQLite-функция lower() не знает кириллицу.
-        query = query.where(
-            or_(
-                Vacancy.raw.like("%удал%"),
-                Vacancy.raw.like("%Удал%"),
-                Vacancy.raw.like("%дистанц%"),
-                Vacancy.raw.like("%Дистанц%"),
-            )
-        )
+        # Почему именно такие подстроки — см. collector/core/remote.py.
+        query = query.where(or_(*[Vacancy.raw.like(f"%{marker}%") for marker in ALL_REMOTE_MARKERS]))
+    return query
 
-    query = query.order_by(Vacancy.published_at.desc(), Vacancy.id.desc()).limit(query_spec.limit)
+
+def _vacancy_query(query_spec: VacancyQuery):
+    """Базовый запрос «вакансия + федеральный округ» с применёнными фильтрами."""
+    region_map = _region_map_subquery()
+    query = (
+        select(Vacancy, region_map.c.federal_district)
+        .select_from(Vacancy)
+        .outerjoin(region_map, region_map.c.name_key == Vacancy.region_key)
+    )
+    return _apply_filters(query, query_spec, region_map)
+
+
+def search_vacancies(session: Session, query_spec: VacancyQuery) -> list[VacancyRow]:
+    """Найти вакансии по условиям. Используется командой выгрузки и отчётом."""
+    query = _vacancy_query(query_spec).order_by(Vacancy.published_at.desc(), Vacancy.id.desc())
+    if query_spec.limit:
+        query = query.limit(query_spec.limit)
     return [VacancyRow(vacancy=row[0], federal_district=row[1]) for row in session.execute(query).all()]
+
+
+def count_search_vacancies(session: Session, query_spec: VacancyQuery) -> int:
+    """Сколько всего вакансий подходит под условия — без ограничения на размер выборки.
+
+    Нужно отчёту: он показывает не только строки, но и честную цифру «сколько нашлось».
+    """
+    region_map = _region_map_subquery()
+    query = (
+        select(func.count(Vacancy.id))
+        .select_from(Vacancy)
+        .outerjoin(region_map, region_map.c.name_key == Vacancy.region_key)
+    )
+    query = _apply_filters(query, query_spec, region_map)
+    return int(session.scalar(query) or 0)
 
 
 def region_match_stats(session: Session) -> tuple[int, int]:
